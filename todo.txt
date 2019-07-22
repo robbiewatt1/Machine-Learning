@@ -1,0 +1,6 @@
+knn density estimation
+genetic algorthym
+linear regression
+basis function mapping
+ridge regression
+basian regression
