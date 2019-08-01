@@ -1,4 +1,5 @@
 import numpy as np
+import math
 
 
 def gaussian(x, mu, sig):
@@ -22,8 +23,18 @@ def uniform(x, mu, h):
     """
     return 1.0 / h if np.abs(x - mu) < 0.5 * h else 0
 
-def binomial():
-    pass
+
+def binomial(n, p, k):
+    """
+    :param n: Number of events
+    :param p: Probability of event
+    :param k: Number of successes
+    :return: binomial density at k
+    """
+    k_fac = math.factorial(k)
+    n_fac = math.factorial(n)
+    nk_fac = math.factorial(n - k)
+    return n_fac / (k_fac * nk_fac) * (1. - p)**(n - k) * p**k
 
 
 def beta():
