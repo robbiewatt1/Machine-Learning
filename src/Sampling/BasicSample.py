@@ -125,6 +125,12 @@ class Gaussian1d(Sample):
             if i == end:
                 break
 
+    @staticmethod
+    def single_sample(mu, sigma):
+        r1 = rand.uniform(0., 1.)
+        r2 = rand.uniform(0., 1.)
+        return ((-2.0 * math.log(r1)) ** 0.5 * math.cos(2. * math.pi * r2) - mu) / sigma
+
 
 class GaussianNd(Sample):
     """
@@ -168,3 +174,10 @@ class GaussianNd(Sample):
             yield self.mu + self.cholesky @ z
             if i == end:
                 break
+
+    @staticmethod
+    def single_sample(mu, covar):
+        cholesky = np.linalg.cholesky(covar)
+        gauss_1d = Gaussian1d(0, 1)
+        z = gauss_1d.sample(mu.shape[0])
+        return mu + cholesky @ z
