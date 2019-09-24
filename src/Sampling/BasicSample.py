@@ -18,7 +18,7 @@ class Sample:
         return np.array([x for x in self.generate(n)])
 
     def generate(self, end):
-        yield None
+        raise NotImplementedError("Stop using this base class!")
 
 
 class Uniform(Sample):
