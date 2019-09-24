@@ -1,4 +1,5 @@
 import numpy as np
+from autograd import grad
 
 # This module contains some optimisation methods to be used when gradients can
 # be easily calculated. Enjoy!
@@ -8,27 +9,28 @@ class Descent:
     """
     Base class for module optimisation classes.
     """
-    def __init__(self, func, params, jac, epsilon, iters, rate):
+    def __init__(self, func, params, epsilon, iters, rate, auto_grad=True):
         """
         :param func         Functions to be optimised.
         :param params:      Numpy array of initial guess of parameters being
                             optimised.
-        :param jac:         Jacobian for func. If None then a finite difference
-                            method will be used.
         :param rate:        Rate of descent
         :param iters:       Number of iterations before breaking.
         :param epsilon:     Minimum change in params of convergence.
+        :param auto_grad    Switch for using auto gradient
         """
 
         self.func = func
-        self.jac = jac
         self.params = params
         self.n_params = len(self.params)
         self.rate = rate
         self.iters = iters
         self.epsilon = epsilon
 
-        if self.jac is None:
+        if auto_grad:
+            # We use auto gradient package
+            self.jac = grad(func)
+        else:
             # We use finite difference function
             self.jac = self._jacobian
             # Small number for finite difference
@@ -122,7 +124,6 @@ class Descent:
 class CoordinateDescent(Descent):
     """
     Coordinate descent optimiser for a given function.
-
     """
     def __init__(self, func, params, jac=None, rate=0.01, epsilon=0.0001, iters=1000):
         """
