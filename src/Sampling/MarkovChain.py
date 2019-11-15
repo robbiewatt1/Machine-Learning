@@ -1,19 +1,29 @@
-import sys
 import random as rand
 import numpy as np
-import matplotlib.pyplot as plt
-from . import BasicSample as BS
+import jax.numpy as jnp
+from jax import grad, jit
 from ..Misc import Distributions as Dist
-from ..Misc.Misc import vector_autocorrelate
+import matplotlib.pyplot as plt
+from matplotlib import cm
 
 
-class MCMC(BS.Sample):
+from autograd import make_vjp
+
+class MCMC:
     """
     Base MCMC class, contains some methods for determining and visualising
     the convergence of the Markov chain.
     """
 
-    def generate(self, end=1e6, burn=None):
+    def sample(self, n):
+        """
+        Sample random numbers from distribution
+        :param n: Number of samples
+        :return:  Numpy array of samples
+        """
+        return np.array([x for x in self.generate(n)])
+
+    def generate(self, end=1e6):
         """
         Overrides the base class generator in sample with extra burn
         parameter for discarding start of chain
@@ -27,7 +37,7 @@ class MCMC(BS.Sample):
         """
 
         # Generate the samples
-        samples = np.array(list(self.generate(end=sample_length, burn=1)))
+        samples = np.array(list(self.generate(end=sample_length)))
         dims = samples.shape[1]
 
         # Generate the auto correlation
@@ -44,12 +54,36 @@ class MCMC(BS.Sample):
 
         plt.figure(1)
         for i in range(dims):
-            print("here")
             plt.subplot((1+dims/2), 2, i+1)
-            print(samples[:, i])
             plt.plot(iter_num, samples[:, i])
         plt.figure(2)
         plt.plot(iter_num, auto_corr)
+
+    def sample_test(self, time=10):
+        """
+        Function to test if sampling is doing what you think. Will plot contour
+        of function and samples being drawn. Currently only works for 2 dimensional
+        functions.
+        """
+
+        # Get the random number generator
+        rand_gen = self.sample(100)
+
+        # plot the function surface
+        xy = np.arange(-5, 5, 0.1)
+        X, Y = np.meshgrid(xy, xy)
+        coords = np.stack((X, Y), axis=2)
+        Z = np.zeros_like(X)
+        for i in range(coords.shape[0]):
+            for j in range(coords.shape[1]):
+                Z[i, j] = self.func(coords[i, j, :])
+
+        fig = plt.figure(figsize=(8, 6))
+        ax = fig.add_subplot(111)
+        ax.contour(X, Y, Z, cmap=cm.plasma)
+        ax.scatter(rand_gen[:, 0], rand_gen[:, 1])
+        print(rand_gen)
+
 
 
 class MetroHast(MCMC):
@@ -64,7 +98,7 @@ class MetroHast(MCMC):
         :param func: Function to be sampled from. Must take a numpy array as input
         :param x_init: Numpy vector of initial point
         :param prop_samp: Proposal distribution sampler, if none then set to
-        gaussian with diagonal covariance. Should take a single parameter x
+               gaussian with diagonal covariance. Should take one parameters x
         :param prop_func: Proposal function, should take two parameters and
         return a density
         :param burn_off: Number of initial samples before accepting
@@ -81,10 +115,10 @@ class MetroHast(MCMC):
             covar = np.identity(x_init.size)
 
             def proposal_sample(x):
-                return BS.GaussianNd.single_sample(x, covar)
+                return Dist.GaussianNd(x, covar).sample(1)[0]
 
             def proposal_function(x, y):
-                return Dist.gaussian_nd(x, y, covar)
+                return Dist.GaussianNd(y, covar).density(x)
 
             self.prop_samp = proposal_sample
             self.prop_func = proposal_function
@@ -103,19 +137,14 @@ class MetroHast(MCMC):
         except Exception as e:
             raise ValueError("Class input parameters bad. Error is: {}". format(str(e)))
 
-    def generate(self, end=1e6, burn=None):
+    def generate(self, end=1e6):
         """
         :param end: End of generator
-        :param burn: Define burn off at generator creation
         :return: Numpy array of samples
         """
 
-        # Check for changed burn parameter
-        if burn is None:
-            burn = self.burn_off
-        # Initial burn off period
         x = self.x_init
-        for _ in range(burn):
+        for _ in range(self.burn_off):
             # Draw from proposal distribution
             y = self.prop_samp(x)
             hast_ratio = self.func(y) * self.prop_func(x, y) / \
@@ -129,7 +158,8 @@ class MetroHast(MCMC):
             i += 1
             # Draw from proposal distribution
             y = self.prop_samp(x)
-            hast_ratio = self.func(y) / self.func(x)
+            hast_ratio = self.func(y) * self.prop_func(x, y) / \
+                (self.func(x) * self.prop_func(x, y))
             if min(1.0, hast_ratio) > rand.uniform(0., 1.):
                 x = np.copy(y)
             yield x
@@ -141,5 +171,78 @@ class Gibbs:
     pass
 
 
-class Hamiltonian:
-    pass
+class Hamiltonian(MCMC):
+    """
+    MCMC sampler using the Hamiltonian algorithm. We have set the kenetic term
+    to be gaussian. Inherits from Sample so has both a generator and a sampler method.
+    """
+    def __init__(self, func, q_init, step_size=0.5, path_length=1.0, mass=1.0, gradient=None):
+        """
+        :param func: Function to be sampled from. Must take a numpy array as input
+        :param q_init: Chain starting point
+        :param step_size: Length of each integration step
+        :param path_length: Total length of integration
+        """
+        self.func = func
+        self.q_init = q_init
+        self.step_size = step_size
+        self.path_length = path_length
+
+        self.mass = np.identity(self.q_init.size) * mass
+        self.inv_mass = np.identity(self.q_init.size) / mass
+
+        self.potential = lambda x: - jnp.log(self.func(x))
+        if gradient is None:
+            self.grad_func = jit(grad(self.potential))
+        else:
+            self.grad_func = gradient
+
+        # Preform some input checks
+        try:
+            self.func(self.q_init)
+            self.grad_func(self.q_init)
+        except Exception as e:
+            raise ValueError("Class input parameters bad. Error is: {}". format(str(e)))
+
+    @staticmethod
+    def _leap_frog(func, q_init, p_init, step_size, path_length):
+        """
+        Leapfrog integration method to find hamiltonian paths
+        :param func:        dv/dt function being integrated
+        :param p_init:      p starting point
+        :param q_init:      q starting point
+        :param step_size:   delta step
+        :param path_length: total length of path
+        :return: (x_final, v_final)
+        """
+        n_steps = int(path_length / step_size)
+        for i in range(n_steps):
+            q_new = q_init + p_init * step_size + 0.5 * func(q_init) \
+                * step_size * step_size
+            p_new = p_init + 0.5 * (func(q_init) + func(q_new)) * step_size
+            q_init = np.copy(q_new)
+            p_init = np.copy(p_new)
+        return q_init, p_init
+
+    def generate(self, end=1e6):
+        # Momentum sampler and density
+        gauss_dist = Dist.GaussianNd(np.zeros_like(self.q_init), self.mass)
+        p_sampler = gauss_dist.generate(end)
+        p_log_density = jit(gauss_dist.log_density)
+
+        q_current = np.copy(self.q_init)
+        for _ in range(int(end)):
+            # Sample momentum and solve dynamics
+            p_current = next(p_sampler)
+            q_final, p_final = self._leap_frog(self.grad_func, q_current, p_current,
+                                               self.step_size, self.path_length)
+
+            # Check Metropolis acceptance criterion
+            init_log_p = self.potential(q_current) - p_log_density(p_current)
+            final_log_p = self.potential(q_final) - p_log_density(p_final)
+            if np.log(rand.uniform(0., 1.)) < init_log_p - final_log_p:
+                yield q_final
+                q_current = np.copy(q_final)
+            else:
+                yield q_current
+

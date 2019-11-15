@@ -3,8 +3,8 @@ from scipy.spatial import KDTree
 from scipy.special import gamma
 import matplotlib.pyplot as plt
 from ..Tools.Decorator import lazy_property
-from .Distributions import gaussian
-from .Distributions import uniform
+from .Distributions import Gaussian1d
+from .Distributions import Uniform
 
 
 class DensityEstimation:
@@ -63,9 +63,9 @@ class KernelEstimation(DensityEstimation):
         if callable(self.kernel):
             self.kernel = kernel
         elif kernel == "gaussian":
-            self.kernel = gaussian
+            self.kernel = Gaussian1d.density_static
         elif kernel == "uniform":
-            self.kernel = uniform
+            self.kernel = Uniform.density_static
         else:
             raise TypeError("Unsupported kernel {}".format(kernel))
 

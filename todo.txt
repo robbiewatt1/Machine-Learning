@@ -4,3 +4,6 @@ linear regression
 basis function mapping
 ridge regression
 basian regression
+
+
+combine sampling and density classes
