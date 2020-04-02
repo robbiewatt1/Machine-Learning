@@ -23,9 +23,9 @@ class Descent:
         self.func = func
         self.params = params
         self.n_params = len(self.params)
-        self.rate = rate
         self.iters = iters
         self.epsilon = epsilon
+        self.rate = rate
 
         if auto_grad:
             # We use auto gradient package
@@ -125,18 +125,18 @@ class CoordinateDescent(Descent):
     """
     Coordinate descent optimiser for a given function.
     """
-    def __init__(self, func, params, jac=None, rate=0.01, epsilon=0.0001, iters=1000):
+    def __init__(self, func, params, l_search=True, rate=0.01, epsilon=0.0001, iters=10000):
         """
         :param func         Functions to be optimised.
         :param params:      Numpy array of initial guess of parameters being
                             optimised.
-        :param jac:         Jacobian for func. If None then a finite difference
-                            method will be used.
+        :param l_search     Bool deciding if line search is used
         :param rate:        Rate of descent
         :param iters:       Number of iterations before breaking.
         :param epsilon:     Minimum change in params of convergence.
         """
-        super(CoordinateDescent, self).__init__(func, params, jac, epsilon, iters, rate)
+        super(CoordinateDescent, self).__init__(func, params, epsilon, iters, rate, False)
+        self.l_search = l_search
 
     def optimise(self):
         """
@@ -150,7 +150,12 @@ class CoordinateDescent(Descent):
             # loop through parameters
             for i in range(self.n_params):
                 # find local gradient
-                self.params[i] -= self.jac(self.params)[i] * self.rate
+                if self.l_search:
+                    dir = np.zeros_like(self.params)
+                    dir[i] = -1 * np.sign(self.jac(self.params)[i])
+                    self.params[i] += self._line_search(dir, self.params) * dir[i]
+                else:
+                    self.params[i] -= self.jac(self.params)[i] * self.rate
 
             # check for convergence
             if np.linalg.norm(grad) < self.epsilon:
@@ -166,7 +171,7 @@ class GradientDescent(Descent):
     Gradient descent optimiser for a given function.
 
     """
-    def __init__(self, func, params, jac=None, epsilon=0.00001, iters=10000, rate=0.01,):
+    def __init__(self, func, params, jac=None, epsilon=0.0001, iters=10000, rate=0.01):
         """
         :param func         Functions to be optimised.
         :param params:      Numpy array of initial guess of parameters being
